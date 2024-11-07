@@ -1,0 +1,730 @@
+---
+title: "FDA Project"
+author: "Oumaima El Menni"
+date: "2024-11-04"
+output: html_document
+---
+
+# Loading packages
+
+
+```{r setup, include=FALSE}
+
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(fda)
+library(tidyverse)
+library(pheatmap)
+library(knitr)
+library(kableExtra)
+library(zoo)       
+library(gridExtra)
+library(refund)
+library(dtw)
+library(fdapace)
+library(depthTools)
+library(rainbow)
+library(roahd)
+library(ggforce)
+library(reshape2)
+library(fda.usc)
+library(pracma)
+library(refund)
+library(viridis)
+
+```
+
+# Loading Dataset
+
+```{r cars}
+file_path <- "E:\\Bureau\\Study\\Y2\\Functional and Topological Data Analysis\\Data Stocks Crypto.xlsx"
+
+data <- read_excel(file_path)
+head(data, 5)
+
+```
+```{r pressure, echo=FALSE}
+data <- na.omit(data)
+data$date <- as.Date(data$date)
+
+head(data, 5)
+```
+
+## Visualization
+
+
+```{r pressure, echo=FALSE}
+assets <- c("AAPL", "JNJ", "KO", "WMT", "XOM", "PG", "JPM", "UNH", "MCD", 
+            "NKE", "ETH", "DSH", "XLM", "PPC", "DOGE", "XEM", "XRP", "XMR", 
+            "BTC", "LTC")
+
+
+stocks <- c("AAPL", "JNJ", "KO", "WMT", "XOM", "PG", "JPM", "UNH", "MCD", "NKE")
+cryptos <- c("ETH", "DSH", "XLM", "PPC", "DOGE", "XEM", "XRP", "XMR", "BTC", "LTC")
+
+
+data_long <- data %>%
+  pivot_longer(cols = all_of(assets),  # Use 'all_of' to refer to the vector
+               names_to = "Asset", 
+               values_to = "Price")
+
+
+for (asset_name in assets) {
+  
+
+    asset_data <- data_long %>% filter(Asset == asset_name)
+  
+
+      plot <- ggplot(asset_data, aes(x = date, y = Price)) +
+    geom_line(color = "blue") +
+    labs(title = paste("Price of", asset_name, "Over Time"), 
+         x = "Date", y = "Price") +
+    theme_minimal()
+  
+  
+
+        print(plot)
+} 
+```
+
+
+# Standardization
+
+```{r pressure, echo=FALSE}
+
+for (asset in assets) {
+  data[[paste0(asset, "_scaled")]] <- (data[[asset]] - min(data[[asset]])) / 
+                                       (max(data[[asset]]) - min(data[[asset]]))
+}
+
+```
+
+
+# B-Spline Smoothing 
+
+```{r pressure, echo=FALSE}
+# Defining assets with corresponding nbasis values (chosen based on visual inspection)
+assets_nbasis <- c(AAPL = 35, JNJ = 25, KO = 25, WMT = 35, XOM = 50, PG = 30, 
+                   JPM = 30, UNH = 18, MCD = 30, NKE = 45, ETH = 30, DSH = 20, 
+                   XLM = 25, PPC = 40, DOGE = 30, XEM = 30, XRP = 30, XMR = 35, 
+                   BTC = 30, LTC = 40)
+
+basis_smooth_list <- list()  
+
+for (asset in names(assets_nbasis)) {
+  nbasis_val <- assets_nbasis[asset]
+  
+  basis <- create.bspline.basis(rangeval = range(data$date), nbasis = nbasis_val)
+  
+  smooth_result <- smooth.basis(data$date, data[[paste0(asset, "_scaled")]], basis)
+  
+  basis_smooth_list[[paste0(asset, "_smooth")]] <- smooth_result
+}
+
+
+```
+
+## Original Curves vs Smoothed Curves
+
+```{r pressure, echo=FALSE}
+
+for (asset in names(assets_nbasis)) {
+  
+  
+  plot(data$date, data[[paste0(asset, "_scaled")]], type = "l", col = "blue", lty = 1,
+       main = paste(asset, "Stock Price - B-spline Smoothing"), xlab = "Date", ylab = "Price")
+  
+  
+  lines(basis_smooth_list[[paste0(asset, "_smooth")]]$fd, col = "red", lty = 2)
+  
+  
+  legend("topleft", legend = c(paste(asset, "Original"), paste(asset, "Smoothed")),
+         col = c("blue", "red"), lty = 1:2)
+  
+  
+  Sys.sleep(1)  
+}
+
+```
+# Visualization
+
+```{r pressure, echo=FALSE}
+
+plot(data$date, data$AAPL_scaled, type = "l", col = "blue", 
+     ylim = range(data[, paste0(names(assets_nbasis), "_scaled")], na.rm = TRUE), 
+     main = "Scaled Prices of All Assets", xlab = "Date", ylab = "Scaled Price")
+
+
+colors <- viridis(length(assets_nbasis))  
+i <- 1
+for (asset in names(assets_nbasis)) {
+  lines(data$date, data[[paste0(asset, "_scaled")]], col = colors[i], lty = 1)
+  i <- i + 1
+}
+
+```
+
+
+```{r pressure, echo=FALSE}
+
+
+# Plot 1: Original scaled data for all assets
+plot(data$date, data$AAPL_scaled, type = "l", col = colors[1],
+     ylim = range(data[, paste0(names(assets_nbasis), "_scaled")], na.rm = TRUE),
+     xlim = range(data$date),  
+     main = "Scaled Prices of All Assets", xlab = "Date", ylab = "Scaled Price")
+
+# Loop to add each asset's scaled data
+for (i in seq_along(names(assets_nbasis))) {
+  asset <- names(assets_nbasis)[i]
+  lines(data$date, data[[paste0(asset, "_scaled")]], col = colors[i], lty = 1)
+}
+
+
+# Plot 2: Smoothed curves for all assets
+plot(data$date, rep(NA, length(data$date)),  # Empty plot to set up x-axis range
+     ylim = c(-0.1, 1.1), xlim = range(data$date),  # Set y-axis limits as required
+     main = "Smoothed Curves of All Assets", xlab = "Date", ylab = "Smoothed Price")
+
+# Loop to add each asset's smoothed data
+for (i in seq_along(names(assets_nbasis))) {
+  asset <- names(assets_nbasis)[i]
+  lines(basis_smooth_list[[paste0(asset, "_smooth")]]$fd, col = colors[i], lty = 1)
+}
+
+```
+
+
+
+# Creating functional objects
+
+```{r pressure, echo=FALSE}
+fd_list <- list()
+
+for (asset in assets) {
+  fd_list[[paste0(asset, "_fd")]] <- basis_smooth_list[[paste0(asset, "_smooth")]]$fd
+}
+```
+
+
+
+# Functional Cross-Correlation
+
+
+
+
+```{r pressure, echo=FALSE}
+
+# To store cross-correlation results
+cross_cor_results <- list()
+
+
+for (stock in stocks) {
+  for (crypto in cryptos) {
+    # Extract functional data objects for the stock and crypto
+    stock_fd <- fd_list[[paste0(stock, "_fd")]]
+    crypto_fd <- fd_list[[paste0(crypto, "_fd")]]
+    
+
+    
+    ccf_result <- inprod(stock_fd, crypto_fd)  
+    
+    
+    cross_cor_results[[paste(stock, crypto, sep = "_")]] <- ccf_result
+  }
+}
+
+
+cross_cor_summary <- data.frame(Stock = character(), Crypto = character(), Corr = numeric())
+
+for (key in names(cross_cor_results)) {
+  stock_crypto <- strsplit(key, "_")[[1]]
+  stock <- stock_crypto[1]
+  crypto <- stock_crypto[2]
+  
+  corr <- cross_cor_results[[key]]  # Access the stored inner product result
+  
+  cross_cor_summary <- rbind(cross_cor_summary, data.frame(Stock = stock, Crypto = crypto, Corr = corr))
+}
+
+print(cross_cor_summary)
+
+corr_min <- min(cross_cor_summary$Corr, na.rm = TRUE)
+corr_max <- max(cross_cor_summary$Corr, na.rm = TRUE)
+
+heatmap_data <- dcast(cross_cor_summary, Stock ~ Crypto, value.var = "Corr")
+ggplot(melt(heatmap_data, id.vars = "Stock"), aes(x = variable, y = Stock, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = (corr_min + corr_max) / 2, limit = c(corr_min, corr_max), 
+                       name="Correlation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Heatmap of Cross-Correlation between Stocks and Cryptocurrencies",
+       x = "Cryptocurrencies", 
+       y = "Stocks")
+
+```
+# Rolling Correlation
+## Heatmap
+
+
+```{r pressure, echo=FALSE}
+data$Date <- as.Date(data$date, format = "%Y-%m-%d")
+
+time_points <- as.numeric(data$date)
+```
+
+
+
+#Heatmap of rolling volatility
+
+
+```{r pressure, echo=FALSE}
+
+time_grid <- data$date  # Extract the date column
+
+calculate_rolling_volatility <- function(fd, time_grid, window_size) {
+    
+    evaluations <- eval.fd(time_grid, fd)
+    
+    
+    vol <- rollapply(evaluations, width = window_size, FUN = sd, by = 1, fill = NA, align = "right")
+    
+    return(vol)
+}
+
+# Parameters for rolling volatility
+window_size <- 10  
+
+
+rolling_volatility <- list()
+
+for (asset in c(stocks, cryptos)) {
+    
+    fd_object <- fd_list[[paste0(asset, "_fd")]]
+    
+    
+    rolling_volatility[[paste0(asset, "_vol")]] <- calculate_rolling_volatility(fd_object, time_grid, window_size)
+}
+
+
+volatility_matrix <- do.call(cbind, lapply(c(stocks, cryptos), function(asset) {
+    vol <- rolling_volatility[[paste0(asset, "_vol")]]
+    ifelse(is.na(vol), 0, vol)  
+}))
+
+
+rownames(volatility_matrix) <- time_grid  
+colnames(volatility_matrix) <- c(stocks, cryptos)
+
+
+volatility_df <- melt(volatility_matrix)
+
+volatility_df$Var1 <- as.Date(volatility_df$Var1)
+
+
+ggplot(volatility_df, aes(x = Var1, y = Var2, fill = value)) +
+    geom_tile() +
+    scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = median(volatility_df$value, na.rm = TRUE)) +
+    labs(title = "Heatmap of Rolling Volatility", x = "Date", y = "Assets", fill = "Volatility") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank()) +
+    scale_x_date(limits = c(min(volatility_df$Var1), max(volatility_df$Var1)))  # Set x-axis limits
+
+```
+
+
+# fANOVA: Compare average behavior 
+
+```{r pressure, echo=FALSE}
+fd_stocks <- lapply(stocks, function(asset) fd_list[[paste0(asset, "_fd")]])
+fd_cryptos <- lapply(cryptos, function(asset) fd_list[[paste0(asset, "_fd")]])
+
+min_length <- min(sapply(c(fd_stocks, fd_cryptos), function(x) length(x$coefs)))
+
+
+fd_stocks <- lapply(fd_stocks, function(fd) fd$coefs[1:min_length, ])
+fd_cryptos <- lapply(fd_cryptos, function(fd) fd$coefs[1:min_length, ])
+
+
+mean_stocks <- rowMeans(do.call(cbind, fd_stocks), na.rm = TRUE)
+mean_cryptos <- rowMeans(do.call(cbind, fd_cryptos), na.rm = TRUE)
+
+mean_combined <- rowMeans(cbind(mean_stocks, mean_cryptos), na.rm = TRUE)
+
+
+n_stocks <- length(stocks)
+n_cryptos <- length(cryptos)
+
+
+SSB <- n_stocks * sum((mean_stocks - mean_combined)^2) + 
+       n_cryptos * sum((mean_cryptos - mean_combined)^2)
+
+# Calculate SSW 
+SSW_stocks <- sum(sapply(fd_stocks, function(fd) sum((fd - mean_stocks)^2, na.rm = TRUE)))
+SSW_cryptos <- sum(sapply(fd_cryptos, function(fd) sum((fd - mean_cryptos)^2, na.rm = TRUE)))
+
+SSW <- SSW_stocks + SSW_cryptos
+
+# Calculate degrees of freedom
+df_between <- 1  # 2 groups - 1
+df_within <- (n_stocks + n_cryptos) - 2  
+
+# Calculate the mean squares
+MSB <- SSB / df_between
+MSW <- SSW / df_within
+
+# Calculate the F-statistic
+F_statistic <- MSB / MSW
+
+
+cat("F-statistic:", F_statistic, "\n")
+cat("Degrees of freedom (between):", df_between, "\n")
+cat("Degrees of freedom (within):", df_within, "\n")
+
+# Calculate the p-value based on F-distribution
+p_value <- pf(F_statistic, df_between, df_within, lower.tail = FALSE)
+cat("p-value:", p_value, "\n")
+
+```
+## Mean Functions of Stocks and Cryptos
+
+```{r pressure, echo=FALSE}
+
+
+
+time_points <- seq(1, min_length)  # Adjust according to your actual time points
+mean_data <- data.frame(
+  Time = rep(time_points, 2),
+  MeanValue = c(mean_stocks, mean_cryptos),
+  Group = rep(c("Stocks", "Cryptos"), each = min_length)
+)
+
+# Plot
+ggplot(mean_data, aes(x = Time, y = MeanValue, color = Group)) +
+  geom_line() +
+  labs(title = "Mean Functions of Stocks and Cryptos",
+       x = "Time",
+       y = "Mean Value") +
+  theme_minimal()
+
+```
+
+
+# Dynamic Time warping
+
+
+```{r pressure, echo=FALSE}
+# Define the DTW matrix to store distances
+dtw_matrix <- matrix(NA, nrow = length(stocks), ncol = length(cryptos),
+                     dimnames = list(stocks, cryptos))
+
+# Define the evaluation points as the dates in the dataset
+eval_points <- data$date
+
+# Function to calculate DTW distances in parallel
+cl <- makeCluster(detectCores() - 1)  # Initialize the cluster (using all but one core)
+
+# Export necessary functions and variables to the parallel workers
+clusterExport(cl, list("stocks", "cryptos", "fd_list", "dtw", "eval_points"))
+
+# Export the 'fda' package and any other required libraries to the cluster
+clusterEvalQ(cl, library(fda))
+
+# Calculate DTW distances between each stock and cryptocurrency in parallel
+dtw_matrix <- parSapply(cl, stocks, function(stock) {
+  sapply(cryptos, function(crypto) {
+    # Evaluate the functional data for the stock and cryptocurrency
+    stock_fd_values <- eval.fd(eval_points, fd_list[[paste0(stock, "_fd")]])
+    crypto_fd_values <- eval.fd(eval_points, fd_list[[paste0(crypto, "_fd")]])
+    
+    # Perform DTW between the evaluated time series
+    dtw_result <- dtw(stock_fd_values, crypto_fd_values)
+    
+    # Return the DTW distance
+    return(dtw_result$distance)
+  })
+})
+
+# Stop the cluster after the computation
+stopCluster(cl)
+
+# Convert the DTW matrix to a data frame for visualization
+dtw_df <- as.data.frame(as.table(dtw_matrix))
+colnames(dtw_df) <- c("Stock", "Crypto", "DTW_Distance")
+
+# Plot a heatmap to visualize DTW distances between stocks and cryptos
+ggplot(dtw_df, aes(x = Stock, y = Crypto, fill = DTW_Distance)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "blue", high = "red") +
+  geom_text(aes(label = round(DTW_Distance, 2)), color = "white", size = 3) +  
+  labs(title = "DTW Distances Between Stocks and Cryptocurrencies",
+       x = "Stock", y = "Cryptocurrency", fill = "DTW Distance") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+
+
+
+
+# Depth Analysis
+
+```{r pressure, echo=FALSE}
+
+day_range <- c(1, nrow(data))  
+common_basis <- create.bspline.basis(day_range, nbasis=15)
+
+
+smooth_data_list <- lapply(c(stocks, cryptos), function(asset) {
+  smooth.basis(argvals=1:nrow(data), y=data[[paste0(asset, "_scaled")]], fdParobj=common_basis)
+})
+
+coefs_matrix <- do.call(cbind, lapply(smooth_data_list, function(x) x$fd$coefs))
+
+# Create the combined fd object for all assets
+combined_fd <- fd(coef=coefs_matrix, basisobj=common_basis, 
+                  fdnames=list("Time", c(stocks, cryptos), "Scaled Price"))
+
+colors <- c(rep("red", length(stocks)), rep("black", length(cryptos)))
+
+date_values <- data$date
+
+plot(combined_fd, col=colors, lty=1, 
+     xlab="Date", ylab="Scaled Price", main="Depth Analysis of Stocks and Cryptos",
+     xaxt = "n")  # Suppress default x-axis
+
+tick_positions <- seq(1, nrow(data), length.out = 3)  # 10 ticks for better visibility
+tick_labels <- format(date_values[tick_positions], "%Y")
+axis(1, at=tick_positions, labels=tick_labels, las=1)
+
+
+legend("topleft", legend=c("Stocks", "Cryptos"), 
+       col=c("red", "black"), lty=1, cex=0.8, bty="n")
+
+```
+```{r pressure, echo=FALSE}
+b1<-boxplot(combined_fd, method = "MBD")
+
+b1<-boxplot(combined_fd, method = "BD2")
+
+```
+
+
+```{r pressure, echo=FALSE}
+
+start_date <- min(as.Date(data$date))
+data$date_numeric <- as.numeric(as.Date(data$date) - start_date)
+
+
+eval_grid <- seq(min(data$date_numeric), max(data$date_numeric), length.out = 100)
+
+basis_smooth_list <- list()  # To store basis and smooth results
+
+for (asset in names(assets_nbasis)) {
+  nbasis_val <- assets_nbasis[asset]
+  
+  
+  basis <- create.bspline.basis(rangeval = range(data$date_numeric), nbasis = nbasis_val)
+  
+  
+  smooth_result <- smooth.basis(data$date_numeric, data[[paste0(asset, "_scaled")]], basis)
+  
+  
+  basis_smooth_list[[paste0(asset, "_smooth")]] <- smooth_result
+}
+
+
+stock_fd_list <- lapply(stocks, function(asset) basis_smooth_list[[paste0(asset, "_smooth")]]$fd)
+crypto_fd_list <- lapply(cryptos, function(asset) basis_smooth_list[[paste0(asset, "_smooth")]]$fd)
+
+
+stock_eval_matrix <- do.call(cbind, lapply(stock_fd_list, function(fd) eval.fd(eval_grid, fd)))
+crypto_eval_matrix <- do.call(cbind, lapply(crypto_fd_list, function(fd) eval.fd(eval_grid, fd)))
+
+stock_fd_matrix <- fdata(stock_eval_matrix, argvals = eval_grid)
+crypto_fd_matrix <- fdata(crypto_eval_matrix, argvals = eval_grid)
+
+stock_depth <- depth.FM(stock_fd_matrix)$dep
+crypto_depth <- depth.FM(crypto_fd_matrix)$dep
+
+stock_depth_df <- data.frame(Asset = stocks, Depth = stock_depth)
+stock_depth_df <- stock_depth_df[order(stock_depth_df$Depth, decreasing = TRUE), ]
+
+crypto_depth_df <- data.frame(Asset = cryptos, Depth = crypto_depth)
+crypto_depth_df <- crypto_depth_df[order(crypto_depth_df$Depth, decreasing = TRUE), ]
+
+
+print("Most Central Stocks:")
+print(head(stock_depth_df, 3))
+
+print("Most Outlying Stocks:")
+print(tail(stock_depth_df, 3))
+
+print("Most Central Cryptos:")
+print(head(crypto_depth_df, 3))
+
+print("Most Outlying Cryptos:")
+print(tail(crypto_depth_df, 3))
+
+```
+
+
+```{r pressure, echo=FALSE}
+
+combined_depth_df <- rbind(data.frame(Asset = stocks, Depth = stock_depth, Type = "Stock"),
+                            data.frame(Asset = cryptos, Depth = crypto_depth, Type = "Crypto"))
+
+ggplot(combined_depth_df, aes(x = reorder(Asset, Depth), y = Depth, fill = Type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ Type, scales = "free_y") +
+  labs(title = "Depth Values of Assets by Type", x = "Assets", y = "Depth") +
+  coord_flip() +
+  theme_minimal()
+
+
+```
+
+# Fourier Analysis
+
+
+```{r pressure, echo=FALSE}
+
+day_range <- c(1, nrow(data))
+
+nbasis <- 20
+b_spline_basis <- create.bspline.basis(rangeval=day_range, nbasis=nbasis)
+
+fourier_basis <- create.fourier.basis(rangeval=day_range, nbasis=12)  # Monthly basis
+
+smooth_and_plot <- function(asset) {
+  # B-spline smoothing
+  b_spline_smooth <- smooth.basis(argvals=1:nrow(data), y=data[[paste0(asset, "_scaled")]], fdParobj=b_spline_basis)
+  
+  # Fourier smoothing
+  fourier_smooth <- smooth.basis(argvals=1:nrow(data), y=data[[paste0(asset, "_scaled")]], fdParobj=fourier_basis)
+  
+  
+  plot(1:nrow(data), data[[paste0(asset, "_scaled")]], type='l', col='lightgray', 
+       main=paste(asset, ": Original Scaled and Smoothed Curves"), ylab="Scaled Price", xlab="Time")
+  lines(b_spline_smooth$fd, col="black", lwd=2, lty=1)  # B-spline
+  lines(fourier_smooth$fd, col="red", lwd=2, lty=2)     # Fourier
+  
+  
+  legend("topleft", legend=c(paste(asset, "Original"), 
+                              paste(asset, "B-spline"), 
+                              paste(asset, "Fourier")), 
+         col=c("lightgray", "black", "red"), 
+         lty=c(1, 1, 2), lwd=c(1, 2, 2))
+}
+
+for (asset in c(stocks, cryptos)) {
+  smooth_and_plot(asset)
+}
+
+
+```
+
+
+```{r pressure, echo=FALSE}
+
+data <- data %>%
+  mutate(date = as.Date(date, format = "%Y/%m/%d"))  
+
+data_long <- data %>%
+  pivot_longer(cols = -date, names_to = "asset", values_to = "price") %>%
+  mutate(price_scaled = scale(price))  # Scale the prices for Fourier analysis
+
+stocks_data <- data_long %>% filter(asset %in% stocks)  
+cryptos_data <- data_long %>% filter(asset %in% cryptos)  
+
+# Convert the date column to numeric for Fourier analysis
+stocks_data <- stocks_data %>% mutate(time = as.numeric(as.Date(date)))
+cryptos_data <- cryptos_data %>% mutate(time = as.numeric(as.Date(date)))
+
+# Create Fourier basis 
+fourier_basis <- create.fourier.basis(rangeval = c(min(stocks_data$time), max(stocks_data$time)), nbasis = 12)  
+
+# Function to perform Fourier analysis on the scaled prices
+fourier_analysis_group <- function(group_data) {
+  # Smooth the data with the Fourier basis
+  fourier_smooth <- smooth.basis(argvals = group_data$time, y = group_data$price_scaled, fdParobj = fourier_basis)
+  
+  # Return the Fourier coefficients
+  return(fourier_smooth$fd$coefs)
+}
+
+# Perform Fourier analysis for stocks and cryptos
+stocks_fourier_coeffs <- fourier_analysis_group(stocks_data)
+cryptos_fourier_coeffs <- fourier_analysis_group(cryptos_data)
+
+# Combine the coefficients into a single data frame for plotting
+stocks_coeffs_df <- as.data.frame(stocks_fourier_coeffs)
+cryptos_coeffs_df <- as.data.frame(cryptos_fourier_coeffs)
+
+# Create a data frame with frequency values
+frequencies <- 1:nrow(stocks_coeffs_df)
+stocks_coeffs_df <- cbind(frequencies, stocks_coeffs_df)
+cryptos_coeffs_df <- cbind(frequencies, cryptos_coeffs_df)
+
+# Convert to long format for ggplot
+stocks_long <- pivot_longer(stocks_coeffs_df, -frequencies, names_to = "Asset", values_to = "Coefficient")
+cryptos_long <- pivot_longer(cryptos_coeffs_df, -frequencies, names_to = "Asset", values_to = "Coefficient")
+
+# Plotting Fourier coefficients for stocks
+ggplot(stocks_long, aes(x = frequencies, y = Coefficient, color = Asset)) +
+  geom_line() +
+  labs(title = "Fourier Coefficients: Stocks", x = "Frequency", y = "Coefficient Value") +
+  theme_minimal()
+
+# Plotting Fourier coefficients for cryptos
+ggplot(cryptos_long, aes(x = frequencies, y = Coefficient, color = Asset)) +
+  geom_line() +
+  labs(title = "Fourier Coefficients: Cryptos", x = "Frequency", y = "Coefficient Value") +
+  theme_minimal()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
